@@ -510,19 +510,21 @@ select.si:focus{outline:none;}
 const SCRIPT_URL='https://script.google.com/macros/s/AKfycbyK61ChOq_P_NkWbwcCIy7Ca7zS6vyr8Z1EAklU2BFEUV7bRbhvSuPcpeseHMkpDkwG/exec';
 const MONTHS=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 const MEMBERS=['Dipak Mehta','Dipali Akhani','Vandana Maheshwari','Pradeep Pradhan','Hitesh Mistri','Chetan Ji','Hemant Sharma','Bhavik Patel','Rushi Jani','Omprakash Ji','Nikul Patoliya','Mahesh Purohit','Nidhi - Marketing'];
-let tasks=[],editId=null,_pollTimer=null;
+let tasks=[],editId=null,_pollTimer=null,_isLoading=false;
 
 document.getElementById('dateTop').textContent=new Date().toLocaleDateString('en-IN',{weekday:'short',day:'2-digit',month:'short',year:'numeric'});
 document.getElementById('meetingDate').valueAsDate=new Date();
 
-/* ── LOAD (JSONP — bypasses CORS) ── */
+/* ── LOAD — JSONP (CORS bypass) ── */
 function loadFromSheet(silent){
+  if(_isLoading) return; // prevent double load
+  _isLoading=true;
   if(!silent) showOv(true,'Loading from Google Sheet...');
   const cb='_cb'+Date.now();
   const s=document.createElement('script');
   let done=false;
   const to=setTimeout(()=>{
-    if(done)return; done=true;
+    if(done)return; done=true; _isLoading=false;
     try{document.head.removeChild(s);}catch(e){}
     delete window[cb];
     const c=localStorage.getItem('znl_c');
@@ -530,44 +532,47 @@ function loadFromSheet(silent){
     showOv(false);
     document.getElementById('lastSync').textContent='Sheet unreachable — cached data';
     document.getElementById('syncLbl').textContent='Offline';
-    if(!silent) toast('Cached data','err');
+    if(!silent) toast('Sheet unreachable — cached data','err');
     poll();
-  },8000);
+  },10000);
   window[cb]=function(data){
-    if(done)return; done=true;
+    if(done)return; done=true; _isLoading=false;
     clearTimeout(to);
     try{document.head.removeChild(s);}catch(e){}
     delete window[cb];
-    tasks=data.tasks||[];
+    const incoming=data.tasks||[];
+    // ALWAYS use Sheet data — never override with stale cache
+    tasks=incoming;
     localStorage.setItem('znl_c',JSON.stringify(tasks));
     renderStats(); renderAll();
     showOv(false);
-    const t=new Date().toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit'});
-    document.getElementById('lastSync').textContent='Synced '+t+' — '+tasks.length+' tasks';
+    const now=new Date().toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit'});
+    document.getElementById('lastSync').textContent='Synced '+now+' — '+tasks.length+' tasks';
     document.getElementById('syncLbl').textContent='Live';
-    if(!silent) toast('Loaded '+tasks.length+' tasks','ok');
+    if(!silent) toast('Synced — '+tasks.length+' tasks','ok');
     poll();
   };
   s.src=SCRIPT_URL+'?action=getAll&callback='+cb+'&t='+Date.now();
   s.onerror=function(){
-    if(done)return; done=true; clearTimeout(to);
+    if(done)return; done=true; _isLoading=false; clearTimeout(to);
     try{document.head.removeChild(s);}catch(e){} delete window[cb];
     const c=localStorage.getItem('znl_c');
     if(c){tasks=JSON.parse(c);renderStats();renderAll();}
-    showOv(false); poll();
+    showOv(false);
+    document.getElementById('lastSync').textContent='Error — cached data shown';
+    if(!silent) toast('Error loading Sheet','err');
+    poll();
   };
   document.head.appendChild(s);
 }
-function poll(){clearTimeout(_pollTimer);_pollTimer=setTimeout(()=>loadFromSheet(true),30000);}
-document.addEventListener('visibilitychange',()=>{if(!document.hidden)loadFromSheet(true);});
+function poll(){clearTimeout(_pollTimer);_pollTimer=setTimeout(()=>loadFromSheet(true),20000);}
+document.addEventListener('visibilitychange',()=>{if(!document.hidden){_isLoading=false;loadFromSheet(true);}});
 
 /* ── NAVIGATION ── */
 function nav(page,idx){
   ['tasks','add','team','person','analytics'].forEach(p=>document.getElementById('pg-'+p).style.display=p===page?'':'none');
-  // Desktop sidebar
   document.querySelectorAll('.nb').forEach(b=>b.classList.remove('active'));
   const nb=document.getElementById('nb'+idx);if(nb)nb.classList.add('active');
-  // Mobile bottom nav
   document.querySelectorAll('.mb').forEach(b=>b.classList.remove('active'));
   const mb=document.getElementById('mb'+idx);if(mb)mb.classList.add('active');
   if(page==='add'&&!editId)prepAdd();
@@ -603,9 +608,9 @@ function scoreHtml(s){
 }
 
 /* ── FORMAT ── */
-function fmtD(d){if(!d)return '—';try{return new Date(d).toLocaleDateString('en-IN',{day:'2-digit',month:'short',year:'numeric'});}catch{return d;}}
-function fmtT(t){if(!t)return '—';try{const dt=new Date(t);return dt.toLocaleDateString('en-IN',{day:'2-digit',month:'short',year:'2-digit'})+' '+dt.toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit'});}catch{return t;}}
-function ini(n){return n.split(' ').slice(0,2).map(w=>w[0]||'').join('').toUpperCase();}
+function fmtD(d){if(!d||d==='undefined'||d==='Invalid Date')return '—';try{const dt=new Date(d);if(isNaN(dt))return d;return dt.toLocaleDateString('en-IN',{day:'2-digit',month:'short',year:'numeric'});}catch{return d;}}
+function fmtT(t){if(!t||t==='undefined')return '—';try{const dt=new Date(t);if(isNaN(dt))return t;return dt.toLocaleDateString('en-IN',{day:'2-digit',month:'short',year:'2-digit'})+' '+dt.toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit'});}catch{return t;}}
+function ini(n){return(n||'?').split(' ').slice(0,2).map(w=>w[0]||'').join('').toUpperCase();}
 function statusLabel(s){return{done:'Done',delayed:'Done but Delayed',pending:'Pending',cancel:'Cancelled'}[s||'pending']||'Pending';}
 function statusPillCls(s){return{done:'pp-d',delayed:'pp-dy',pending:'pp-p',cancel:'pp-c'}[s||'pending']||'pp-p';}
 function swCls(s){return{done:'sw-done',delayed:'sw-delayed',pending:'sw-pending',cancel:'sw-cancel'}[s||'pending']||'sw-pending';}
@@ -628,20 +633,21 @@ function renderStats(){
     '<div class="stat"><div class="stat-n" style="color:'+(sc>=0?'var(--green)':'var(--red)')+'">'+(sc>=0?'+':'')+sc+'</div><div class="stat-l">Score</div></div>';
 }
 
-/* ── BUILD STATUS SELECT ── */
+/* ── STATUS SELECT HTML ── */
 function statusSel(id,cur,onchange){
-  const opts=[['pending','Pending'],['done','Done'],['delayed','Done but Delayed'],['cancel','Cancelled']];
-  return '<div class="sw '+swCls(cur)+'"><select class="si '+siCls(cur)+'" onchange="'+onchange+'">'+
-    opts.map(([v,l])=>'<option value="'+v+'"'+(cur===v?' selected':'')+'>'+l+'</option>').join('')+
-  '</select></div>';
+  return '<div class="sw '+swCls(cur)+'"><select class="si '+siCls(cur)+'" onchange="'+onchange+'">'
+    +[['pending','Pending'],['done','Done'],['delayed','Done but Delayed'],['cancel','Cancelled']]
+    .map(([v,l])=>'<option value="'+v+'"'+(cur===v?' selected':'')+'>'+l+'</option>').join('')
+    +'</select></div>';
 }
 function memberSel(cur,onchange){
-  return '<select class="si" style="min-width:110px;background:transparent;border:none;font-size:12px;font-weight:500;" onchange="'+onchange+'">'+
-    '<option value="">—</option>'+MEMBERS.map(m=>'<option'+(cur===m?' selected':'')+'>'+m+'</option>').join('')+
-  '</select>';
+  return '<select class="si" style="min-width:110px;background:transparent;border:none;font-size:12px;font-weight:500;" onchange="'+onchange+'">'
+    +'<option value="">—</option>'
+    +MEMBERS.map(m=>'<option'+(cur===m?' selected':'')+'>'+m+'</option>').join('')
+    +'</select>';
 }
 
-/* ── FILTER & RENDER (both table + cards) ── */
+/* ── RENDER ALL (table + cards) ── */
 function renderAll(){
   renderStats();
   const fn=document.getElementById('fName').value;
@@ -662,55 +668,53 @@ function renderTable(fil){
   if(!fil.length){tb.innerHTML='<tr><td colspan="9"><div class="empty">No tasks found.</div></td></tr>';return;}
   tb.innerHTML=fil.map(t=>{
     const ts=t.status||'pending';
-    return '<tr class="fade">'+
-      '<td><span class="sr-chip">'+(t.srno||'—')+'</span></td>'+
-      '<td>'+memberSel(t.assignedTo,"updateField('"+t.id+"','assignedTo',this.value)")+'</td>'+
-      '<td class="ts">'+fmtD(t.meetingDate)+'</td>'+
-      '<td style="max-width:190px;word-break:break-word;font-size:13px">'+(t.taskDesc||'—')+'</td>'+
-      '<td class="ts">'+fmtD(t.targetDate)+'</td>'+
-      '<td>'+statusSel(t.id,ts,"updateStatus('"+t.id+"',this.value)")+'</td>'+
-      '<td class="ts">'+(t.statusTime?fmtT(t.statusTime):'—')+'</td>'+
-      '<td style="text-align:center">'+scoreHtml(getScore(t))+'</td>'+
-      '<td style="white-space:nowrap"><button class="btn btn-ghost btn-sm" onclick="editTask(\''+t.id+'\')">Edit</button> <button class="btn btn-del btn-sm" onclick="delTask(\''+t.id+'\')">&#x2715;</button></td>'+
-      '</tr>';
+    return '<tr class="fade">'
+      +'<td><span class="sr-chip">'+(t.srno||'—')+'</span></td>'
+      +'<td>'+memberSel(t.assignedTo,"updateField('"+t.id+"','assignedTo',this.value)")+'</td>'
+      +'<td class="ts">'+fmtD(t.meetingDate)+'</td>'
+      +'<td style="max-width:190px;word-break:break-word;font-size:13px">'+(t.taskDesc||'—')+'</td>'
+      +'<td class="ts">'+fmtD(t.targetDate)+'</td>'
+      +'<td>'+statusSel(t.id,ts,"updateStatus('"+t.id+"',this.value)")+'</td>'
+      +'<td class="ts">'+(t.statusTime&&t.statusTime!=='undefined'&&t.statusTime!==''?fmtT(t.statusTime):'—')+'</td>'
+      +'<td style="text-align:center">'+scoreHtml(getScore(t))+'</td>'
+      +'<td style="white-space:nowrap">'
+        +'<button class="btn btn-ghost btn-sm" onclick="editTask(''+t.id+'')">Edit</button> '
+        +'<button class="btn btn-del btn-sm" onclick="delTask(''+t.id+'')">&#x2715;</button>'
+      +'</td>'
+      +'</tr>';
   }).join('');
 }
 
 function renderCards(fil,containerId){
-  const el=document.getElementById(containerId);
-  if(!el)return;
+  const el=document.getElementById(containerId);if(!el)return;
   if(!fil.length){el.innerHTML='<div class="empty">No tasks found.</div>';return;}
+  const isDetail=containerId==='pd-cards';
   el.innerHTML=fil.map(t=>{
     const ts=t.status||'pending';
     const sc=getScore(t);
     const scColor=sc===1?'var(--green)':sc===-1?'var(--red)':sc===-2?'var(--orange)':'var(--text3)';
-    const isPersonDetail=containerId==='pd-cards';
-    return '<div class="tc fade">'+
-      '<div class="tc-top">'+
-        '<span class="tc-sr">'+(t.srno||'—')+'</span>'+
-        (!isPersonDetail?'<span class="tc-name">'+(t.assignedTo||'—')+'</span>':'')+
-        '<span class="pp '+statusPillCls(ts)+'" style="flex-shrink:0">'+statusLabel(ts)+'</span>'+
-      '</div>'+
-      '<div class="tc-task">'+(t.taskDesc||'—')+'</div>'+
-      '<div class="tc-row">'+
-        '<span class="tc-lbl">Meeting:</span><span class="tc-val">'+fmtD(t.meetingDate)+'</span>'+
-        '<span class="tc-lbl" style="margin-left:10px">Target:</span><span class="tc-val">'+fmtD(t.targetDate)+'</span>'+
-      '</div>'+
-      (t.statusTime?'<div class="tc-row"><span class="tc-lbl">Updated:</span><span class="tc-val">'+fmtT(t.statusTime)+'</span></div>':'')+
-      '<div class="tc-bottom">'+
-        '<div>'+
-          '<div style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:.4px;margin-bottom:2px;">Score</div>'+
-          '<div class="tc-score" style="color:'+scColor+'">'+(sc!==null?(sc>=0?'+':'')+sc:'—')+'</div>'+
-        '</div>'+
-        '<div class="tc-actions">'+
-          '<select class="si '+siCls(ts)+'" style="border:1px solid var(--border);border-radius:20px;padding:5px 8px;font-size:12px;background:var(--white);" onchange="updateStatus(\''+t.id+'\',this.value)">'+
-            [['pending','Pending'],['done','Done'],['delayed','Delayed'],['cancel','Cancel']].map(([v,l])=>'<option value="'+v+'"'+(ts===v?' selected':'')+'>'+l+'</option>').join('')+
-          '</select>'+
-          '<button class="btn btn-ghost btn-sm" onclick="editTask(\''+t.id+'\')" style="padding:6px 10px;">Edit</button>'+
-          '<button class="btn btn-del btn-sm" onclick="delTask(\''+t.id+'\')" style="padding:6px 8px;">&#x2715;</button>'+
-        '</div>'+
-      '</div>'+
-    '</div>';
+    return '<div class="tc fade">'
+      +'<div class="tc-top">'
+        +'<span class="tc-sr">'+(t.srno||'—')+'</span>'
+        +(!isDetail?'<span class="tc-name">'+(t.assignedTo||'—')+'</span>':'')
+        +'<span class="pp '+statusPillCls(ts)+'" style="flex-shrink:0">'+statusLabel(ts)+'</span>'
+      +'</div>'
+      +'<div class="tc-task">'+(t.taskDesc||'—')+'</div>'
+      +'<div class="tc-row"><span class="tc-lbl">Meeting:</span><span class="tc-val">'+fmtD(t.meetingDate)+'</span>'
+        +'<span class="tc-lbl" style="margin-left:10px">Target:</span><span class="tc-val">'+fmtD(t.targetDate)+'</span></div>'
+      +(t.statusTime&&t.statusTime!==''&&t.statusTime!=='undefined'?'<div class="tc-row"><span class="tc-lbl">Updated:</span><span class="tc-val">'+fmtT(t.statusTime)+'</span></div>':'')
+      +'<div class="tc-bottom">'
+        +'<div><div style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:.4px;margin-bottom:2px">Score</div>'
+          +'<div class="tc-score" style="color:'+scColor+'">'+(sc!==null?(sc>=0?'+':'')+sc:'—')+'</div></div>'
+        +'<div class="tc-actions">'
+          +'<select class="si '+siCls(ts)+'" style="border:1px solid var(--border);border-radius:20px;padding:5px 8px;font-size:12px;background:var(--white);" onchange="updateStatus(''+t.id+'',this.value)">'
+            +[['pending','Pending'],['done','Done'],['delayed','Delayed'],['cancel','Cancel']].map(([v,l])=>'<option value="'+v+'"'+(ts===v?' selected':'')+'>'+l+'</option>').join('')
+          +'</select>'
+          +'<button class="btn btn-ghost btn-sm" onclick="editTask(''+t.id+'')" style="padding:6px 10px">Edit</button>'
+          +'<button class="btn btn-del btn-sm" onclick="delTask(''+t.id+'')" style="padding:6px 8px">&#x2715;</button>'
+        +'</div>'
+      +'</div>'
+    +'</div>';
   }).join('');
 }
 
@@ -724,14 +728,16 @@ function updateStatus(id,val){
   if(val==='pending')tasks[idx].pendingTime=now;
   if(val==='cancel')tasks[idx].cancelTime=now;
   localStorage.setItem('znl_c',JSON.stringify(tasks));
-  renderAll();push(tasks[idx]);
+  renderAll();
+  push(tasks[idx],()=>loadFromSheet(true));
   toast('Status → '+val,'ok');
 }
 function updateField(id,field,val){
   const idx=tasks.findIndex(t=>t.id===id);if(idx===-1)return;
   tasks[idx][field]=val;
   localStorage.setItem('znl_c',JSON.stringify(tasks));
-  renderStats();push(tasks[idx]);
+  renderStats();
+  push(tasks[idx],()=>loadFromSheet(true));
 }
 
 /* ── SAVE TASK ── */
@@ -742,43 +748,67 @@ function saveTask(){
   const desc=document.getElementById('taskDesc').value.trim();
   const st=document.getElementById('statusField').value||'pending';
   if(!at||!md||!td||!desc){toast('Fill all required fields','err');return;}
-  const btn=document.getElementById('saveBtn');btn.textContent='Saving...';btn.disabled=true;
+  const btn=document.getElementById('saveBtn');
+  btn.textContent='Saving...';btn.disabled=true;
   const now=new Date().toISOString();
+  let taskToSave;
   if(editId){
-    const idx=tasks.findIndex(t=>t.id===editId),old=tasks[idx],sc=old.status!==st;
-    tasks[idx]={...old,assignedTo:at,meetingDate:md,targetDate:td,taskDesc:desc,status:st,
-      statusTime:sc?now:old.statusTime,doneTime:st==='done'?now:(old.doneTime||''),
-      delayedTime:st==='delayed'?now:(old.delayedTime||''),pendingTime:st==='pending'?now:(old.pendingTime||''),
+    const idx=tasks.findIndex(t=>t.id===editId);
+    const old=tasks[idx];const sc=old.status!==st;
+    taskToSave={...old,assignedTo:at,meetingDate:md,targetDate:td,taskDesc:desc,status:st,
+      statusTime:sc?now:old.statusTime,
+      doneTime:st==='done'?now:(old.doneTime||''),
+      delayedTime:st==='delayed'?now:(old.delayedTime||''),
+      pendingTime:st==='pending'?now:(old.pendingTime||''),
       cancelTime:st==='cancel'?now:(old.cancelTime||'')};
-    push(tasks[idx],()=>{btn.textContent='&#128190; Save & Sync to Sheet';btn.disabled=false;loadFromSheet(true);});
-    editId=null;document.getElementById('formTitle').textContent='Add New Task';
-    toast('Task updated','ok');
+    tasks[idx]=taskToSave;
+    editId=null;
+    document.getElementById('formTitle').textContent='Add New Task';
+    toast('Saving...','');
   } else {
-    const task={id:'T'+Date.now(),srno:'',assignedTo:at,meetingDate:md,targetDate:td,taskDesc:desc,status:st,
-      statusTime:st!=='pending'?now:'',doneTime:st==='done'?now:'',delayedTime:st==='delayed'?now:'',
-      pendingTime:st==='pending'?now:'',cancelTime:st==='cancel'?now:'',createdAt:now};
-    push(task,()=>{btn.textContent='&#128190; Save & Sync to Sheet';btn.disabled=false;loadFromSheet(true);toast('Task saved!','ok');});
+    taskToSave={
+      id:'T'+Date.now(),srno:'',
+      assignedTo:at,meetingDate:md,targetDate:td,taskDesc:desc,status:st,
+      statusTime:st!=='pending'?now:'',
+      doneTime:st==='done'?now:'',
+      delayedTime:st==='delayed'?now:'',
+      pendingTime:st==='pending'?now:'',
+      cancelTime:st==='cancel'?now:'',
+      createdAt:now
+    };
   }
-  localStorage.setItem('znl_c',JSON.stringify(tasks));
-  clearForm();nav('tasks',0);
+  // Push to sheet, then reload to get SR and all fresh data
+  push(taskToSave,()=>{
+    btn.textContent='💾 Save & Sync to Sheet';
+    btn.disabled=false;
+    _isLoading=false;
+    loadFromSheet(false);
+    toast('Saved! Reloading all tasks...','ok');
+  });
+  clearForm();
+  nav('tasks',0);
 }
+
 function editTask(id){
   const t=tasks.find(x=>x.id===id);if(!t)return;
   editId=id;
-  document.getElementById('srno').value=t.srno;
-  document.getElementById('assignedTo').value=t.assignedTo;
-  document.getElementById('meetingDate').value=t.meetingDate;
-  document.getElementById('targetDate').value=t.targetDate;
-  document.getElementById('taskDesc').value=t.taskDesc;
+  document.getElementById('srno').value=t.srno||'';
+  document.getElementById('assignedTo').value=t.assignedTo||'';
+  document.getElementById('meetingDate').value=t.meetingDate||'';
+  document.getElementById('targetDate').value=t.targetDate||'';
+  document.getElementById('taskDesc').value=t.taskDesc||'';
   document.getElementById('statusField').value=t.status||'pending';
-  document.getElementById('formTitle').textContent='Edit — '+t.srno;
+  document.getElementById('formTitle').textContent='Edit — '+(t.srno||'Task');
   nav('add',1);
 }
 function delTask(id){
   if(!confirm('Delete this task?'))return;
   const task=tasks.find(t=>t.id===id);if(!task)return;
-  push({...task,action:'delete'},()=>loadFromSheet(true));
-  toast('Deleted');
+  tasks=tasks.filter(t=>t.id!==id);
+  localStorage.setItem('znl_c',JSON.stringify(tasks));
+  renderAll();
+  push({...task,action:'delete'},()=>{_isLoading=false;loadFromSheet(true);});
+  toast('Task deleted');
 }
 function clearForm(){
   editId=null;
@@ -800,60 +830,59 @@ function renderReport(){
   if(!people.length){grid.innerHTML='<div class="empty">No data yet.</div>';return;}
   grid.innerHTML=people.map(person=>{
     const pt=tasks.filter(t=>t.assignedTo===person);
-    const done=pt.filter(t=>t.status==='done').length,pend=pt.filter(t=>!t.status||t.status==='pending').length,
-      delay=pt.filter(t=>t.status==='delayed').length,can=pt.filter(t=>t.status==='cancel').length;
+    const done=pt.filter(t=>t.status==='done').length,
+      pend=pt.filter(t=>!t.status||t.status==='pending').length,
+      delay=pt.filter(t=>t.status==='delayed').length,
+      can=pt.filter(t=>t.status==='cancel').length;
     const sc=pt.map(t=>getScore(t)).filter(s=>s!==null).reduce((a,b)=>a+b,0);
     const total=pt.length,pct=total>0?Math.round((done/total)*100):0;
     const scCol=sc>0?'var(--green)':sc<0?'var(--red)':'var(--text3)';
-    return '<div class="pc fade">'+
-      '<div class="pc-head">'+
-        '<div class="av">'+ini(person)+'</div>'+
-        '<div><div class="pc-name">'+person+'</div><div class="pc-meta">'+total+' tasks</div></div>'+
-        '<div style="margin-left:auto;text-align:right"><div class="pc-sc-n" style="color:'+scCol+'">'+(sc>=0?'+':'')+sc+'</div><div class="pc-sc-l">Score</div></div>'+
-      '</div>'+
-      '<div class="pc-pills">'+
-        (done?'<span class="pp pp-d">'+done+' Done</span>':'')+
+    return '<div class="pc fade">'
+      +'<div class="pc-head"><div class="av">'+ini(person)+'</div>'
+      +'<div><div class="pc-name">'+person+'</div><div class="pc-meta">'+total+' tasks</div></div>'
+      +'<div style="margin-left:auto;text-align:right"><div class="pc-sc-n" style="color:'+scCol+'">'+(sc>=0?'+':'')+sc+'</div><div class="pc-sc-l">Score</div></div></div>'
+      +'<div class="pc-pills">'
+        +(done?'<span class="pp pp-d">'+done+' Done</span>':'')+
         (pend?'<span class="pp pp-p">'+pend+' Pending</span>':'')+
         (delay?'<span class="pp pp-dy">'+delay+' Delayed</span>':'')+
-        (can?'<span class="pp pp-c">'+can+' Cancelled</span>':'')+
-      '</div>'+
-      '<div class="pc-bar"><div class="pc-fill" style="width:'+pct+'%"></div></div>'+
-      '<div class="pc-pct">'+pct+'% complete</div>'+
-      '<button class="pc-btn" onclick="showPersonDetail(\''+person+'\')">View '+person.split(' ')[0]+'\'s Tasks &#8594;</button>'+
-    '</div>';
+        (can?'<span class="pp pp-c">'+can+' Cancel</span>':'')
+      +'</div>'
+      +'<div class="pc-bar"><div class="pc-fill" style="width:'+pct+'%"></div></div>'
+      +'<div class="pc-pct">'+pct+'% complete</div>'
+      +'<button class="pc-btn" onclick="showPersonDetail(''+person+'')">View '+person.split(' ')[0]+''s Tasks &#8594;</button>'
+    +'</div>';
   }).join('');
 }
 
 /* ── PERSON DETAIL ── */
 function showPersonDetail(person){
   const pt=tasks.filter(t=>t.assignedTo===person);
-  const done=pt.filter(t=>t.status==='done').length,pend=pt.filter(t=>!t.status||t.status==='pending').length,
+  const done=pt.filter(t=>t.status==='done').length,
+    pend=pt.filter(t=>!t.status||t.status==='pending').length,
     delay=pt.filter(t=>t.status==='delayed').length;
   const sc=pt.map(t=>getScore(t)).filter(s=>s!==null).reduce((a,b)=>a+b,0);
   const scCol=sc>0?'var(--green)':sc<0?'var(--red)':'var(--text3)';
   document.getElementById('pd-title').textContent=person;
   document.getElementById('pd-header').innerHTML=
-    '<div class="pd-av">'+ini(person)+'</div>'+
-    '<div class="pd-info"><div class="pd-name">'+person+'</div><div class="pd-sub">'+pt.length+' tasks assigned</div></div>'+
-    '<div class="pd-scores">'+
-      '<div class="pds"><div class="pds-n" style="color:'+scCol+'">'+(sc>=0?'+':'')+sc+'</div><div class="pds-l">Score</div></div>'+
-      '<div class="pds"><div class="pds-n" style="color:var(--green)">'+done+'</div><div class="pds-l">Done</div></div>'+
-      '<div class="pds"><div class="pds-n" style="color:var(--amber)">'+pend+'</div><div class="pds-l">Pending</div></div>'+
-      '<div class="pds"><div class="pds-n" style="color:var(--orange)">'+delay+'</div><div class="pds-l">Delayed</div></div>'+
-    '</div>';
-  // Table (desktop)
+    '<div class="pd-av">'+ini(person)+'</div>'
+    +'<div class="pd-info"><div class="pd-name">'+person+'</div><div class="pd-sub">'+pt.length+' tasks assigned</div></div>'
+    +'<div class="pd-scores">'
+      +'<div class="pds"><div class="pds-n" style="color:'+scCol+'">'+(sc>=0?'+':'')+sc+'</div><div class="pds-l">Score</div></div>'
+      +'<div class="pds"><div class="pds-n" style="color:var(--green)">'+done+'</div><div class="pds-l">Done</div></div>'
+      +'<div class="pds"><div class="pds-n" style="color:var(--amber)">'+pend+'</div><div class="pds-l">Pending</div></div>'
+      +'<div class="pds"><div class="pds-n" style="color:var(--orange)">'+delay+'</div><div class="pds-l">Delayed</div></div>'
+    +'</div>';
   const tb=document.getElementById('pd-tbody');
-  if(!pt.length){tb.innerHTML='<tr><td colspan="7"><div class="empty">No tasks.</div></td></tr>';}
-  else tb.innerHTML=pt.map(t=>'<tr class="fade">'+
-    '<td><span class="sr-chip">'+(t.srno||'—')+'</span></td>'+
-    '<td style="max-width:200px;word-break:break-word">'+(t.taskDesc||'—')+'</td>'+
-    '<td class="ts">'+fmtD(t.meetingDate)+'</td>'+
-    '<td class="ts">'+fmtD(t.targetDate)+'</td>'+
-    '<td><span class="pp '+statusPillCls(t.status||'pending')+'">'+statusLabel(t.status)+'</span></td>'+
-    '<td class="ts">'+(t.statusTime?fmtT(t.statusTime):'—')+'</td>'+
-    '<td style="text-align:center">'+scoreHtml(getScore(t))+'</td>'+
-  '</tr>').join('');
-  // Mobile cards
+  tb.innerHTML=!pt.length?'<tr><td colspan="7"><div class="empty">No tasks.</div></td></tr>':
+    pt.map(t=>'<tr class="fade">'
+      +'<td><span class="sr-chip">'+(t.srno||'—')+'</span></td>'
+      +'<td style="max-width:200px;word-break:break-word">'+(t.taskDesc||'—')+'</td>'
+      +'<td class="ts">'+fmtD(t.meetingDate)+'</td>'
+      +'<td class="ts">'+fmtD(t.targetDate)+'</td>'
+      +'<td><span class="pp '+statusPillCls(t.status||'pending')+'">'+statusLabel(t.status)+'</span></td>'
+      +'<td class="ts">'+(t.statusTime&&t.statusTime!==''?fmtT(t.statusTime):'—')+'</td>'
+      +'<td style="text-align:center">'+scoreHtml(getScore(t))+'</td>'
+    +'</tr>').join('');
   renderCards(pt,'pd-cards');
   ['tasks','add','team','analytics'].forEach(p=>document.getElementById('pg-'+p).style.display='none');
   document.getElementById('pg-person').style.display='';
@@ -869,7 +898,7 @@ function switchATab(tab,el){
   if(tab==='member')renderMemberScore();
 }
 function populateYears(){
-  const years=[...new Set(tasks.map(t=>{const d=t.doneTime||t.statusTime||t.createdAt;return d?new Date(d).getFullYear():null;}).filter(Boolean))].sort((a,b)=>b-a);
+  const years=[...new Set(tasks.map(t=>{const d=t.doneTime||t.statusTime||t.createdAt;return d&&d!==''&&d!=='undefined'?new Date(d).getFullYear():null;}).filter(Boolean))].sort((a,b)=>b-a);
   if(!years.length)years.push(new Date().getFullYear());
   const sel=document.getElementById('yearFilter'),cur=sel.value;
   sel.innerHTML=years.map(y=>'<option value="'+y+'"'+(y==cur?' selected':'')+'>'+y+'</option>').join('');
@@ -877,16 +906,18 @@ function populateYears(){
 }
 function barChart(data,container){
   const maxAbs=Math.max(1,...data.map(d=>Math.abs(d.sc)));
-  document.getElementById(container).innerHTML=data.map(d=>{
+  const el=document.getElementById(container);
+  if(!el)return;
+  el.innerHTML=data.map(d=>{
     const pct=Math.round((Math.abs(d.sc)/maxAbs)*100);
     const col=d.sc>0?'var(--green)':d.sc<0?'var(--red)':'var(--border2)';
-    return '<div class="bar-row">'+
-      '<div class="bar-lbl" title="'+d.lbl+'">'+d.lbl+'</div>'+
-      '<div class="bar-track"><div class="bar-fill" style="width:'+pct+'%;background:'+col+'"></div></div>'+
-      '<div class="bar-val" style="color:'+col+'">'+(d.sc>=0?'+':'')+d.sc+'</div>'+
-      '<div class="bar-cnt">'+d.total+' tasks</div>'+
-    '</div>';
-  }).join('') || '<div class="empty">No data.</div>';
+    return '<div class="bar-row">'
+      +'<div class="bar-lbl" title="'+d.lbl+'">'+d.lbl+'</div>'
+      +'<div class="bar-track"><div class="bar-fill" style="width:'+pct+'%;background:'+col+'"></div></div>'
+      +'<div class="bar-val" style="color:'+col+'">'+(d.sc>=0?'+':'')+d.sc+'</div>'
+      +'<div class="bar-cnt">'+d.total+' tasks</div>'
+    +'</div>';
+  }).join('')||'<div class="empty">No data yet.</div>';
 }
 function renderMonthly(){
   const yr=parseInt(document.getElementById('yearFilter').value)||new Date().getFullYear();
@@ -894,17 +925,23 @@ function renderMonthly(){
   barChart(MONTHS.map((mn,mi)=>{
     const mt=tasks.filter(t=>{
       if(mem&&t.assignedTo!==mem)return false;
-      const d=t.doneTime||t.statusTime;if(!d)return false;
-      const dt=new Date(d);return dt.getFullYear()===yr&&dt.getMonth()===mi;
+      const d=t.doneTime||t.statusTime;if(!d||d===''||d==='undefined')return false;
+      try{const dt=new Date(d);return!isNaN(dt)&&dt.getFullYear()===yr&&dt.getMonth()===mi;}catch{return false;}
     });
     return{lbl:mn,sc:mt.map(t=>getScore(t)).filter(s=>s!==null).reduce((a,b)=>a+b,0),total:mt.length};
   }),'monthly-chart');
 }
 function renderYearly(){
   const mem=document.getElementById('memberFilterY').value;
-  const years=[...new Set(tasks.map(t=>{const d=t.doneTime||t.statusTime||t.createdAt;return d?new Date(d).getFullYear():null;}).filter(Boolean))].sort();
+  const years=[...new Set(tasks.map(t=>{const d=t.doneTime||t.statusTime||t.createdAt;
+    try{return d&&d!==''&&d!=='undefined'?new Date(d).getFullYear():null;}catch{return null;}
+  }).filter(Boolean))].sort();
   barChart(years.map(yr=>{
-    const yt=tasks.filter(t=>{if(mem&&t.assignedTo!==mem)return false;const d=t.doneTime||t.statusTime;if(!d)return false;return new Date(d).getFullYear()===yr;});
+    const yt=tasks.filter(t=>{
+      if(mem&&t.assignedTo!==mem)return false;
+      const d=t.doneTime||t.statusTime;if(!d||d===''||d==='undefined')return false;
+      try{return!isNaN(new Date(d))&&new Date(d).getFullYear()===yr;}catch{return false;}
+    });
     return{lbl:String(yr),sc:yt.map(t=>getScore(t)).filter(s=>s!==null).reduce((a,b)=>a+b,0),total:yt.length};
   }),'yearly-chart');
 }
@@ -913,8 +950,13 @@ function renderMemberScore(){
   const data=MEMBERS.map(person=>{
     const pt=tasks.filter(t=>{
       if(t.assignedTo!==person)return false;
-      if(period==='thisyear'){const d=t.doneTime||t.statusTime;if(!d)return false;return new Date(d).getFullYear()===now.getFullYear();}
-      if(period==='thismonth'){const d=t.doneTime||t.statusTime;if(!d)return false;const dt=new Date(d);return dt.getFullYear()===now.getFullYear()&&dt.getMonth()===now.getMonth();}
+      if(period==='all')return true;
+      const d=t.doneTime||t.statusTime;if(!d||d===''||d==='undefined')return false;
+      try{
+        const dt=new Date(d);if(isNaN(dt))return false;
+        if(period==='thisyear')return dt.getFullYear()===now.getFullYear();
+        if(period==='thismonth')return dt.getFullYear()===now.getFullYear()&&dt.getMonth()===now.getMonth();
+      }catch{return false;}
       return true;
     });
     return{lbl:person.split(' ').slice(0,2).join(' '),sc:pt.map(t=>getScore(t)).filter(s=>s!==null).reduce((a,b)=>a+b,0),total:pt.length};
@@ -925,23 +967,30 @@ function renderMemberScore(){
 /* ── PUSH TO SHEET ── */
 function push(task,cb){
   const score=getScore(task);
-  fetch(SCRIPT_URL,{method:'POST',mode:'no-cors',headers:{'Content-Type':'application/json'},body:JSON.stringify({...task,score:score!==null?score:''})})
-    .then(()=>{if(cb)cb();}).catch(err=>{console.error(err);if(cb)cb();});
+  fetch(SCRIPT_URL,{method:'POST',mode:'no-cors',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({...task,score:score!==null?score:''})
+  }).then(()=>{if(cb)cb();}).catch(err=>{console.error('Push error:',err);if(cb)cb();});
 }
 
-/* ── EXPORT ── */
+/* ── EXPORT CSV ── */
 function exportCSV(){
   if(!tasks.length){toast('No data');return;}
   const h=['SR No','Assigned To','Meeting','Task','Target','Status','Updated','Score'];
   const rows=tasks.map(t=>[t.srno,t.assignedTo,t.meetingDate,'"'+(t.taskDesc||'').replace(/"/g,'""')+'"',t.targetDate,t.status||'pending',t.statusTime?fmtT(t.statusTime):'',getScore(t)!==null?getScore(t):''].join(','));
   const a=document.createElement('a');
-  a.href='data:text/csv;charset=utf-8,'+encodeURIComponent([h.join(','),...rows].join('\n'));
-  a.download='ZNL_'+new Date().toISOString().split('T')[0]+'.csv';
+  a.href='data:text/csv;charset=utf-8,'+encodeURIComponent([h.join(','),...rows].join('
+'));
+  a.download='ZNL_Delegation_'+new Date().toISOString().split('T')[0]+'.csv';
   a.click();toast('Exported','ok');
 }
 
 /* ── HELPERS ── */
-function showOv(show,txt){const ov=document.getElementById('overlay');ov.style.display=show?'flex':'none';if(txt)document.getElementById('ov-txt').textContent=txt;}
+function showOv(show,txt){
+  const ov=document.getElementById('overlay');
+  ov.style.display=show?'flex':'none';
+  if(txt)document.getElementById('ov-txt').textContent=txt;
+}
 function toast(msg,type){
   const el=document.getElementById('toast');
   document.getElementById('tm').textContent=msg;
@@ -950,6 +999,8 @@ function toast(msg,type){
   clearTimeout(el._t);el._t=setTimeout(()=>el.classList.remove('on'),3000);
 }
 
+// Clear stale cache on load to force fresh Sheet data
+localStorage.removeItem('znl_c');
 loadFromSheet();
 </script>
 </body>
