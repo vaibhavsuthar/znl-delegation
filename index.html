@@ -148,14 +148,21 @@ select.si:focus{outline:none}
   :root{--TH:48px;--MH:58px}
   .sb{display:none}.mob-nav{display:block}.btn-mob-sync{display:block}.live-pill{display:none}
   .main{padding:10px 10px calc(var(--MH) + 10px)}.tb-logo{height:32px}.tb-title{font-size:12px}
-  .stats{grid-template-columns:repeat(3,1fr);gap:5px}.sc{padding:8px 9px}.sc-n{font-size:18px}.sc-l{font-size:9px}
+  .stats{grid-template-columns:repeat(3,1fr);gap:5px}.sc{padding:8px 9px}.sc-n{font-size:17px}.sc-l{font-size:9px}
   .ph{flex-direction:column}.ph .btn-p{width:100%;justify-content:center}
   .tw{display:none}.tcards{display:flex}
-  .fg{grid-template-columns:1fr 1fr}.fgf{grid-column:1/-1}
+  .fg{grid-template-columns:1fr}.fgf{grid-column:1/-1}
   .fl input,.fl select,.fl textarea{font-size:16px}
   .filt{flex-direction:column}.filt select,.filt input{width:100%;font-size:16px}
   .rg{grid-template-columns:1fr}.btn-row{flex-direction:column}.btn-row .btn{width:100%;justify-content:center}
   .toast{bottom:calc(var(--MH) + 8px);left:10px;right:10px;max-width:none}.pd-scores{gap:8px}
+  #qe-grid{grid-template-columns:1fr !important}
+  #add-form-grid{grid-template-columns:1fr !important}
+  .card{padding:12px !important}
+  .fl label{font-size:10px;letter-spacing:.3px}
+  .btn-row{margin-top:10px;gap:7px}
+  #f-sr{display:none}
+  .f-sr-label{display:none}
 }
 @media(max-width:380px){.stats{grid-template-columns:repeat(2,1fr)}.fg{grid-template-columns:1fr}}
 </style>
@@ -170,7 +177,7 @@ select.si:focus{outline:none}
     <div class="tb-title">Delegation Management<small id="ddt"></small></div>
   </div>
   <div class="tb-r">
-    <div class="live-pill"><div class="live-dot"></div><span id="sl">Connecting...</span></div>
+    <div class="live-pill"><div class="live-dot" id="live-dot"></div><span id="sl">Connecting...</span></div>
     <button class="btn-mob-sync" onclick="load()">&#8635; Sync</button>
   </div>
 </div>
@@ -215,8 +222,8 @@ select.si:focus{outline:none}
   <div id="pg-add" style="display:none">
     <div class="ph"><div><div class="ph-t" id="form-title">Add New Task</div><div class="ph-s">Fill all required fields</div></div></div>
     <div class="card">
-      <div class="fg">
-        <div class="fl"><label>SR Number</label><input type="text" id="f-sr" readonly></div>
+      <div class="fg" id="add-form-grid">
+        <div class="fl f-sr-label"><label>SR Number</label><input type="text" id="f-sr" readonly></div>
         <div class="fl"><label>Assigned To *</label><select id="f-to"><option value="">Select...</option><option>Dipak Mehta</option><option>Dipali Akhani</option><option>Vandana Maheshwari</option><option>Pradeep Pradhan</option><option>Hitesh Mistri</option><option>Chetan Ji</option><option>Hemant Sharma</option><option>Bhavik Patel</option><option>Rushi Jani</option><option>Omprakash Ji</option><option>Nikul Patoliya</option><option>Mahesh Purohit</option><option>Nidhi - Marketing</option></select></div>
         <div class="fl"><label>Meeting Date *</label><input type="date" id="f-md"></div>
         <div class="fl"><label>Target Date *</label><input type="date" id="f-td"></div>
@@ -322,6 +329,10 @@ function load(silent) {
     try { T = JSON.parse(cache); renderStats(); render(); } catch(e){}
   }
   showOv(false); // never block UI
+  // Show syncing dot
+  var dot = document.getElementById('live-dot');
+  if(dot) dot.style.background='#fbbf24';
+  document.getElementById('sl').textContent='Syncing...';
   // Background JSONP
   var cb  = '_znl' + Date.now();
   var tag = document.createElement('script');
@@ -329,6 +340,7 @@ function load(silent) {
   var timer = setTimeout(function(){
     if (done) return; done = true; busy = false; cleanup();
     setSync('Sheet unreachable — cached', false);
+    var dot=document.getElementById('live-dot'); if(dot)dot.style.background='#f87171';
     if (!silent) toast('Cannot reach Sheet','err');
     poll();
   }, 6000);
@@ -339,6 +351,7 @@ function load(silent) {
     renderStats(); render();
     var t = new Date().toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit'});
     setSync('Synced ' + t + ' — ' + T.length + ' tasks', true);
+    var dot=document.getElementById('live-dot'); if(dot)dot.style.background='#4ade80';
     if (!silent) toast('Loaded ' + T.length + ' tasks','ok');
     poll();
   };
@@ -360,7 +373,7 @@ function setSync(txt, ok) {
 }
 function poll() {
   clearTimeout(pollT);
-  pollT = setTimeout(function(){ busy = false; load(true); }, 25000);
+  pollT = setTimeout(function(){ busy = false; load(true); }, 15000);
 }
 document.addEventListener('visibilitychange', function(){
   if (!document.hidden) { busy = false; load(true); }
@@ -524,9 +537,11 @@ function updSt(id,val){
   if(val==='pending')T[i].pendingTime=now;
   if(val==='cancel') T[i].cancelTime=now;
   localStorage.setItem('znl',JSON.stringify(T));
+  // Clear filter so row stays visible after status change
+  document.getElementById('fS').value='';
   render();
   push(T[i],function(){busy=false;load(true);});
-  toast('Status → '+val,'ok');
+  toast('Status: '+stLbl(val),'ok');
 }
 function upd(id,field,val){
   var i=T.findIndex(function(t){return t.id===id;});
@@ -535,6 +550,7 @@ function upd(id,field,val){
   localStorage.setItem('znl',JSON.stringify(T));
   renderStats();
   push(T[i],function(){busy=false;load(true);});
+  toast('Updated!','ok');
 }
 
 // SAVE
@@ -579,17 +595,7 @@ function saveTask(){
 }
 
 function editT(id){
-  var t=T.find(function(x){return x.id===id;});
-  if(!t)return;
-  editId=id;
-  document.getElementById('f-sr').value=t.srno||'';
-  document.getElementById('f-to').value=t.assignedTo||'';
-  document.getElementById('f-md').value=t.meetingDate||'';
-  document.getElementById('f-td').value=t.targetDate||'';
-  document.getElementById('f-tx').value=t.taskDesc||'';
-  document.getElementById('f-st').value=t.status||'pending';
-  document.getElementById('form-title').textContent='Edit — '+(t.srno||'Task');
-  pg('add',1);
+  openQE(id);
 }
 
 function delT(id){
@@ -807,6 +813,104 @@ function toast(msg,type){
 // START
 load();
 
+// ── QUICK EDIT PANEL ─────────────────────────────────────────
+var qeId = null;
+
+function openQE(id) {
+  var t = T.find(function(x){ return x.id===id; });
+  if (!t) return;
+  qeId = id;
+  document.getElementById('qe-title').textContent = 'Edit Task';
+  document.getElementById('qe-sr').textContent = t.srno || '';
+  document.getElementById('qe-to').value = t.assignedTo || '';
+  document.getElementById('qe-st').value = t.status || 'pending';
+  document.getElementById('qe-md').value = t.meetingDate || '';
+  document.getElementById('qe-td').value = t.targetDate || '';
+  document.getElementById('qe-tx').value = t.taskDesc || '';
+  document.getElementById('qe-overlay').style.display = 'block';
+  document.getElementById('qe-panel').style.display = 'block';
+  document.body.style.overflow = 'hidden';
+}
+
+function closeQE() {
+  qeId = null;
+  document.getElementById('qe-overlay').style.display = 'none';
+  document.getElementById('qe-panel').style.display = 'none';
+  document.body.style.overflow = '';
+}
+
+function saveQE() {
+  if (!qeId) return;
+  var at = document.getElementById('qe-to').value;
+  var st = document.getElementById('qe-st').value || 'pending';
+  var md = document.getElementById('qe-md').value;
+  var td = document.getElementById('qe-td').value;
+  var tx = document.getElementById('qe-tx').value.trim();
+  if (!at || !md || !td || !tx) { toast('Please fill all required fields','err'); return; }
+  
+  var btn = document.getElementById('qe-save');
+  btn.textContent = 'Saving...'; btn.disabled = true;
+  
+  var i = T.findIndex(function(x){ return x.id===qeId; });
+  if (i < 0) { closeQE(); return; }
+  var old = T[i];
+  var now = new Date().toISOString();
+  var sc = old.status !== st;
+  
+  T[i] = Object.assign({}, old, {
+    assignedTo:at, meetingDate:md, targetDate:td, taskDesc:tx, status:st,
+    statusTime: sc ? now : old.statusTime,
+    doneTime:    st==='done'    ? now : (old.doneTime||''),
+    delayedTime: st==='delayed' ? now : (old.delayedTime||''),
+    pendingTime: st==='pending' ? now : (old.pendingTime||''),
+    cancelTime:  st==='cancel'  ? now : (old.cancelTime||'')
+  });
+  
+  localStorage.setItem('znl', JSON.stringify(T));
+  // Clear filter so edited task stays visible
+  document.getElementById('fS').value = '';
+  render();
+  closeQE();
+  
+  push(T[i], function(){
+    btn.textContent = 'Save & Sync to Sheet';
+    btn.disabled = false;
+    busy = false;
+    load(true);
+    toast('Task saved & synced!','ok');
+  });
+}
+
+
 </script>
+
+<!-- QUICK EDIT PANEL -->
+<div id="qe-overlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:800" onclick="closeQE()"></div>
+<div id="qe-panel" style="display:none;position:fixed;bottom:0;left:0;right:0;background:var(--w);border-radius:16px 16px 0 0;z-index:801;padding:16px;box-shadow:0 -4px 24px rgba(0,0,0,.15);max-height:85vh;overflow-y:auto">
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
+    <div>
+      <div style="font-size:15px;font-weight:700" id="qe-title">Edit Task</div>
+      <div style="font-size:11px;color:var(--tx3)" id="qe-sr"></div>
+    </div>
+    <button onclick="closeQE()" style="background:var(--gy);border:none;border-radius:50%;width:32px;height:32px;cursor:pointer;font-size:16px;display:flex;align-items:center;justify-content:center">&#x2715;</button>
+  </div>
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px" id="qe-grid">
+    <div class="fl"><label>Assigned To *</label>
+      <select id="qe-to"><option value="">Select...</option><option>Dipak Mehta</option><option>Dipali Akhani</option><option>Vandana Maheshwari</option><option>Pradeep Pradhan</option><option>Hitesh Mistri</option><option>Chetan Ji</option><option>Hemant Sharma</option><option>Bhavik Patel</option><option>Rushi Jani</option><option>Omprakash Ji</option><option>Nikul Patoliya</option><option>Mahesh Purohit</option><option>Nidhi - Marketing</option></select>
+    </div>
+    <div class="fl"><label>Status *</label>
+      <select id="qe-st"><option value="pending">Pending</option><option value="done">Done</option><option value="delayed">Done but Delayed</option><option value="cancel">Cancelled</option></select>
+    </div>
+    <div class="fl"><label>Meeting Date *</label><input type="date" id="qe-md"></div>
+    <div class="fl"><label>Target Date *</label><input type="date" id="qe-td"></div>
+  </div>
+  <div class="fl" style="margin-bottom:14px"><label>Task / Work *</label>
+    <textarea id="qe-tx" style="min-height:70px" placeholder="Task description..."></textarea>
+  </div>
+  <div style="display:flex;gap:8px">
+    <button class="btn btn-p" id="qe-save" onclick="saveQE()" style="flex:1">Save &amp; Sync to Sheet</button>
+    <button class="btn btn-gh" onclick="closeQE()" style="flex:0 0 auto">Cancel</button>
+  </div>
+</div>
 </body>
 </html>
